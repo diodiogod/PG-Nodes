@@ -413,11 +413,18 @@ import { app } from "../../scripts/app.js";
       // ===== Body / List =====
       '.pg-hist-body{height:var(--pg-hist-body-maxh);overflow:auto;}',
       '.pg-hist-list{display:block;}',
-      '.pg-hist-row{padding:6px 10px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;gap:8px;}',
+      '.pg-hist-row{padding:8px 10px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;gap:8px;border-bottom:1px solid rgba(255,255,255,0.05);}',
       '.pg-hist-row-text{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+      '.pg-hist-row-meta{flex-shrink:0;display:flex;gap:8px;align-items:center;font-size:11px;opacity:0.7;}',
+      '.pg-hist-row-hits{color:#4db8ff;font-weight:500;}',
       '.pg-hist-row-score{flex-shrink:0;font-weight:500;color:#4db8ff;min-width:50px;text-align:right;font-size:12px;}',
       '.pg-hist-row:hover{background:var(--pg-hist-hover);}',
       '.pg-hist-empty,.pg-hist-status{padding:10px 12px;opacity:.8;}',
+
+      // ===== Preview Pane =====
+      '.pg-hist-preview{border-top:1px solid var(--pg-hist-border);padding:10px 12px;max-height:150px;overflow:auto;background:rgba(0,0,0,0.2);}',
+      '.pg-hist-preview-label{font-size:11px;opacity:0.7;margin-bottom:4px;font-weight:500;}',
+      '.pg-hist-preview-text{font-size:13px;line-height:1.4;white-space:pre-wrap;word-wrap:break-word;}',
 
       // ===== Footer / Button =====
       '.pg-hist-footer{padding:10px 12px;border-top:1px solid var(--pg-hist-border);}',
@@ -434,8 +441,15 @@ import { app } from "../../scripts/app.js";
     var card    = document.createElement('div'); card.className    = 'pg-hist-card';
     var header  = document.createElement('div'); header.className  = 'pg-hist-header';
     var body    = document.createElement('div'); body.className    = 'pg-hist-body';
+    var preview = document.createElement('div'); preview.className = 'pg-hist-preview'; preview.style.display = 'none';
     var footer  = document.createElement('div'); footer.className  = 'pg-hist-footer';
     var status  = document.createElement('div'); status.className  = 'pg-hist-status'; status.textContent = 'Loading…';
+
+    // Preview pane structure
+    var previewLabel = document.createElement('div'); previewLabel.className = 'pg-hist-preview-label'; previewLabel.textContent = 'Preview:';
+    var previewText = document.createElement('div'); previewText.className = 'pg-hist-preview-text';
+    preview.appendChild(previewLabel);
+    preview.appendChild(previewText);
 
     // header: title + filter (no close button)
     var title = document.createElement('div'); title.className = 'pg-hist-title'; title.textContent = 'History';
@@ -456,22 +470,44 @@ import { app } from "../../scripts/app.js";
     header.appendChild(title);
     header.appendChild(filter);
 
-    // footer: New Prompt button (full width)
+    // footer: Use button + New Prompt button
+    var useBtn = document.createElement('button');
+    useBtn.className = 'pg-hist-btn';
+    useBtn.textContent = 'Use This Prompt';
+    useBtn.style.marginBottom = '8px';
+    useBtn.disabled = true;
+    useBtn.style.opacity = '0.5';
+    var selectedItem = null;
+
+    useBtn.onclick = function(){
+      if (!selectedItem) return;
+      var kh = (selectedItem && selectedItem.key_hash) || '';
+      var lbl = (selectedItem && selectedItem.label_short) || '';
+      status.textContent = 'Loading…';
+      var sel = kh || String(lbl);
+      apiPreview(node, sel).then(function(txt){
+        try { setPreview(node, txt); } catch(_){ }
+        destroy();
+      }).catch(function(e){
+        status.textContent = 'Error: ' + ((e && e.message) || String(e));
+      });
+    };
+
     var noneBtn = document.createElement('button');
     noneBtn.className = 'pg-hist-btn';
     noneBtn.textContent = 'New Prompt';
-    noneBtn.style.display = 'block';
-    noneBtn.style.width = '100%';
     noneBtn.onclick = function(){
       try { setPreview(node, '', { force: true }); } catch(_) { }
       destroy();
     };
 
+    footer.appendChild(useBtn);
     footer.appendChild(noneBtn);
 
     // assemble
     card.appendChild(header);
     card.appendChild(body);
+    card.appendChild(preview);
     card.appendChild(footer);
     overlay.appendChild(card);
     document.body.appendChild(overlay);
@@ -530,10 +566,12 @@ import { app } from "../../scripts/app.js";
         listEl.appendChild(empty);
         return;
       }
+      var selectedRow = null;
       filtered.forEach(function(it){
         var lbl = (it && (it.label_short || it)) || '';
         var kh  = (it && it.key_hash) || '';
         var score = (it && typeof it.search_score !== 'undefined') ? it.search_score : null;
+        var hits = (it && it.hits) || 0;
         var row = document.createElement('div');
         row.className = 'pg-hist-row';
         row.title = String(lbl);
@@ -544,14 +582,52 @@ import { app } from "../../scripts/app.js";
         textSpan.textContent = String(lbl);
         row.appendChild(textSpan);
 
+        // Create metadata span (hits + score)
+        var metaSpan = document.createElement('div');
+        metaSpan.className = 'pg-hist-row-meta';
+
+        // Always show hit count
+        var hitsSpan = document.createElement('span');
+        hitsSpan.className = 'pg-hist-row-hits';
+        hitsSpan.textContent = hits + (hits === 1 ? ' use' : ' uses');
+        metaSpan.appendChild(hitsSpan);
+
         // Add score span if searching
         if (q && score !== null) {
           var scoreSpan = document.createElement('div');
           scoreSpan.className = 'pg-hist-row-score';
           scoreSpan.textContent = Math.round(score) + '%';
-          row.appendChild(scoreSpan);
+          metaSpan.appendChild(scoreSpan);
         }
+        row.appendChild(metaSpan);
+
+        // Click handler for selection and preview
         row.onclick = function(){
+          // Update selected row styling
+          if (selectedRow) {
+            selectedRow.style.background = '';
+          }
+          selectedRow = row;
+          row.style.background = 'var(--pg-hist-hover)';
+
+          // Store selected item and enable Use button
+          selectedItem = it;
+          useBtn.disabled = false;
+          useBtn.style.opacity = '1';
+
+          // Show preview
+          var pos = (it && it.positive) || '';
+          var neg = (it && it.negative) || '';
+          var previewContent = pos;
+          if (neg) {
+            previewContent += '\n---\n' + neg;
+          }
+          previewText.textContent = previewContent || '(empty)';
+          preview.style.display = 'block';
+        };
+
+        // Double-click handler to apply immediately
+        row.ondblclick = function(){
           status.textContent = 'Loading preview…';
           var sel = kh || String(lbl);
           apiPreview(node, sel).then(function(txt){
