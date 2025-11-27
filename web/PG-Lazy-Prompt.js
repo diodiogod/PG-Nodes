@@ -419,7 +419,10 @@ import { app } from "../../scripts/app.js";
       '.pg-hist-row-hits{color:#4db8ff;font-weight:500;}',
       '.pg-hist-row-score{flex-shrink:0;font-weight:500;color:#4db8ff;min-width:50px;text-align:right;font-size:12px;}',
       '.pg-hist-row:hover{background:var(--pg-hist-hover);}',
+      '.pg-hist-row.selected{background:var(--pg-hist-hover);outline:2px solid #4db8ff;}',
+      '.pg-hist-highlight{background-color:#4db8ff;color:#000;font-weight:500;padding:1px 2px;border-radius:2px;}',
       '.pg-hist-empty,.pg-hist-status{padding:10px 12px;opacity:.8;}',
+      '.pg-hist-empty-help{padding:10px 12px;opacity:.6;font-size:12px;line-height:1.6;}',
 
       // ===== Preview Pane =====
       '.pg-hist-preview{border-top:1px solid var(--pg-hist-border);padding:10px 12px;max-height:150px;overflow:auto;background:rgba(0,0,0,0.2);}',
@@ -434,6 +437,27 @@ import { app } from "../../scripts/app.js";
     ].join('\n');
     document.head.appendChild(s);
   })();
+
+  // Helper function to highlight search terms in text
+  function highlightTerms(text, query) {
+    if (!query || !text) return text;
+
+    // Parse query to extract positive terms (skip negative filters with -)
+    var terms = query.toLowerCase().split(/\s+/).filter(function(t) {
+      return t && !t.startsWith('-');
+    });
+
+    if (!terms.length) return text;
+
+    // Escape special regex chars and create pattern
+    var escaped = terms.map(function(t) {
+      return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    });
+    var pattern = new RegExp('(' + escaped.join('|') + ')', 'gi');
+
+    // Replace matches with highlighted spans
+    return text.replace(pattern, '<span class="pg-hist-highlight">$1</span>');
+  }
 
   function openPanelUI(node){
     // overlay & chrome
@@ -516,6 +540,9 @@ import { app } from "../../scripts/app.js";
     // data & rendering
     var allItems = [];
     var listEl = null;
+    var selectedRowIndex = -1;
+    var allRows = [];
+    var filtered = [];
 
     function labelOf(it){
       return (it && (it.label_short || it.key_hash || it)) || '';
@@ -551,23 +578,75 @@ import { app } from "../../scripts/app.js";
       } else {
         listEl.innerHTML = '';
       }
+      selectedRowIndex = -1;
+      allRows = [];
       var q = filter.value.trim();
       // Use server-side search if query is provided
       if (q && allItems.length > 0) {
         // Client-side fallback for filtering (server already filtered if search_query was sent)
-        var filtered = allItems.filter(function(it){ return matchItem(it, q); });
+        filtered = allItems.filter(function(it){ return matchItem(it, q); });
       } else {
-        var filtered = allItems;
+        filtered = allItems;
       }
       if (!filtered.length){
         var empty = document.createElement('div');
         empty.className = 'pg-hist-empty';
         empty.textContent = q ? 'No matches' : 'No history';
         listEl.appendChild(empty);
+
+        // Add helpful hint when no results
+        if (!allItems.length) {
+          var help = document.createElement('div');
+          help.className = 'pg-hist-empty-help';
+          help.innerHTML = 'Prompts will appear here after you generate captions.<br>Then you can search them!';
+          listEl.appendChild(help);
+        } else if (q) {
+          var help = document.createElement('div');
+          help.className = 'pg-hist-empty-help';
+          help.innerHTML = 'Try different terms or use:<br>• "quoted phrases" for exact matches<br>• -exclude to filter out words';
+          listEl.appendChild(help);
+        }
         return;
       }
-      var selectedRow = null;
-      filtered.forEach(function(it){
+
+      // Helper to select a row by index
+      function selectRow(index) {
+        if (index < 0 || index >= allRows.length) return;
+
+        // Clear previous selection
+        allRows.forEach(function(r) { r.classList.remove('selected'); });
+
+        selectedRowIndex = index;
+        var row = allRows[index];
+        var item = filtered[index];
+        row.classList.add('selected');
+
+        // Scroll into view if needed
+        row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+
+        // Update selected item and enable Use button
+        selectedItem = item;
+        useBtn.disabled = false;
+        useBtn.style.opacity = '1';
+
+        // Show preview with highlighting
+        var pos = (item && item.positive) || '';
+        var neg = (item && item.negative) || '';
+        var previewContent = pos;
+        if (neg) {
+          previewContent += '\n---\n' + neg;
+        }
+
+        // Apply highlighting if searching
+        if (q) {
+          previewText.innerHTML = highlightTerms(previewContent || '(empty)', q);
+        } else {
+          previewText.textContent = previewContent || '(empty)';
+        }
+        preview.style.display = 'block';
+      }
+
+      filtered.forEach(function(it, index){
         var lbl = (it && (it.label_short || it)) || '';
         var kh  = (it && it.key_hash) || '';
         var score = (it && typeof it.search_score !== 'undefined') ? it.search_score : null;
@@ -576,7 +655,7 @@ import { app } from "../../scripts/app.js";
         row.className = 'pg-hist-row';
         row.title = String(lbl);
 
-        // Create text span
+        // Create text span (no highlighting in list)
         var textSpan = document.createElement('div');
         textSpan.className = 'pg-hist-row-text';
         textSpan.textContent = String(lbl);
@@ -604,25 +683,29 @@ import { app } from "../../scripts/app.js";
         // Click handler for selection and preview
         row.onclick = function(){
           // Update selected row styling
-          if (selectedRow) {
-            selectedRow.style.background = '';
-          }
-          selectedRow = row;
-          row.style.background = 'var(--pg-hist-hover)';
+          allRows.forEach(function(r) { r.classList.remove('selected'); });
+          row.classList.add('selected');
+          selectedRowIndex = index;
 
           // Store selected item and enable Use button
           selectedItem = it;
           useBtn.disabled = false;
           useBtn.style.opacity = '1';
 
-          // Show preview
+          // Show preview with highlighting
           var pos = (it && it.positive) || '';
           var neg = (it && it.negative) || '';
           var previewContent = pos;
           if (neg) {
             previewContent += '\n---\n' + neg;
           }
-          previewText.textContent = previewContent || '(empty)';
+
+          // Apply highlighting if searching
+          if (q) {
+            previewText.innerHTML = highlightTerms(previewContent || '(empty)', q);
+          } else {
+            previewText.textContent = previewContent || '(empty)';
+          }
           preview.style.display = 'block';
         };
 
@@ -660,13 +743,54 @@ import { app } from "../../scripts/app.js";
             });
           }
         };
+
+        allRows.push(row);
         listEl.appendChild(row);
       });
+
+      // Auto-select first row if there are results
+      if (allRows.length > 0 && q) {
+        selectRow(0);
+      }
     }
 
     // interactions
-    function escHandler(ev){ if (ev.key === 'Escape'){ destroy(); } }
-    document.addEventListener('keydown', escHandler);
+    function keyHandler(ev){
+      if (ev.key === 'Escape'){
+        destroy();
+      } else if (ev.key === 'ArrowDown'){
+        ev.preventDefault();
+        if (allRows.length > 0) {
+          var nextIndex = selectedRowIndex + 1;
+          if (nextIndex >= allRows.length) nextIndex = 0; // Wrap to start
+          selectRow(nextIndex);
+        }
+      } else if (ev.key === 'ArrowUp'){
+        ev.preventDefault();
+        if (allRows.length > 0) {
+          var prevIndex = selectedRowIndex - 1;
+          if (prevIndex < 0) prevIndex = allRows.length - 1; // Wrap to end
+          selectRow(prevIndex);
+        }
+      } else if (ev.key === 'Enter'){
+        ev.preventDefault();
+        // If a row is selected, trigger double-click behavior (apply immediately)
+        if (selectedRowIndex >= 0 && allRows[selectedRowIndex]) {
+          allRows[selectedRowIndex].ondblclick();
+        } else if (allRows.length > 0) {
+          // If no row selected, select and apply first row
+          allRows[0].ondblclick();
+        }
+      }
+    }
+    document.addEventListener('keydown', keyHandler);
+
+    // Update destroy to remove new handler
+    var originalDestroy = destroy;
+    destroy = function() {
+      try { document.removeEventListener('keydown', keyHandler); } catch(_){ }
+      originalDestroy();
+    };
 
     // Filter input: send search query to server and re-render
     var filterTimeout = null;
@@ -685,7 +809,13 @@ import { app } from "../../scripts/app.js";
       }, 250);
     });
 
-    filter.addEventListener('keydown', function(ev){ if (ev.key === 'Escape'){ ev.stopPropagation(); destroy(); } });
+    filter.addEventListener('keydown', function(ev){
+      // Allow Escape, Enter, and Arrow keys to bubble up to main handler
+      if (ev.key === 'Escape' || ev.key === 'Enter' || ev.key === 'ArrowDown' || ev.key === 'ArrowUp'){
+        // Don't stop propagation - let keyHandler handle it
+        return;
+      }
+    });
 
     // load data
     apiList(node).then(function(items){

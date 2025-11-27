@@ -906,6 +906,11 @@ def _search_score(query: str, text: str) -> float:
     - 0 = no match
     - 100 = perfect match
     - Uses rapidfuzz if available for typo tolerance, otherwise falls back to substring matching
+
+    Search syntax:
+    - Negative filters: "-water -sky" excludes results containing those words
+    - Quoted phrases: "sci-fi" searches for literal hyphenated words
+    - Combined: 'mountains "sci-fi" -water -ocean' finds sci-fi mountains without water/ocean
     """
     if not query or not text:
         return 100.0
@@ -913,28 +918,70 @@ def _search_score(query: str, text: str) -> float:
     query_lower = query.lower().strip()
     text_lower = text.lower()
 
-    # Split query into terms
-    terms = query_lower.split()
-    if not terms:
+    # Parse query into terms, respecting quotes for literal strings
+    # Example: 'mountains "sci-fi" -water' -> [('mountains', False), ('sci-fi', True), ('-water', False)]
+    # Quoted terms preserve hyphens literally; unquoted terms can use - as exclusion
+    import re
+    # Match quoted strings or non-whitespace sequences
+    matches = re.findall(r'"([^"]+)"|(\S+)', query_lower)
+    # Build list of (term, is_quoted) tuples
+    parsed_terms = []
+    for quoted, unquoted in matches:
+        if quoted:
+            parsed_terms.append((quoted, True))  # Quoted term - hyphens are literal
+        elif unquoted:
+            parsed_terms.append((unquoted, False))  # Unquoted term - hyphens can be operators
+
+    if not parsed_terms:
         return 100.0
 
-    # If only one term, use fuzzy matching
-    if len(terms) == 1:
+    positive_terms = []
+    negative_terms = []
+
+    for term, is_quoted in parsed_terms:
+        # Only treat '-' as exclusion operator if it's an unquoted term starting with '-'
+        if not is_quoted and term.startswith('-') and len(term) > 1:
+            # Negative filter (exclude)
+            negative_terms.append(term[1:])  # Remove the '-' prefix
+        else:
+            # Positive filter (include) - quoted terms or regular terms
+            positive_terms.append(term)
+
+    # First check negative filters - if any match, return 0 (exclude this result)
+    text_words = text_lower.split()
+    for neg_term in negative_terms:
         if _HAS_RAPIDFUZZ and fuzz:
-            # Use rapidfuzz partial_ratio for keyword/substring matching with typo tolerance
-            return float(fuzz.partial_ratio(query_lower, text_lower))
+            # Check if negative term matches any word in text
+            for text_word in text_words:
+                score = float(fuzz.token_ratio(neg_term, text_word))
+                if score >= 60.0:  # If negative term found, exclude
+                    return 0.0
         else:
             # Fallback: simple substring match
-            if query_lower in text_lower:
+            if neg_term in text_lower:
+                return 0.0
+
+    # If no positive terms, just check that negative filters passed
+    if not positive_terms:
+        return 100.0
+
+    # If only one positive term, use fuzzy matching
+    if len(positive_terms) == 1:
+        term = positive_terms[0]
+        if _HAS_RAPIDFUZZ and fuzz:
+            # Use rapidfuzz partial_ratio for keyword/substring matching with typo tolerance
+            return float(fuzz.partial_ratio(term, text_lower))
+        else:
+            # Fallback: simple substring match
+            if term in text_lower:
                 return 100.0
             return 0.0
 
-    # Multi-term matching: all terms must be present
+    # Multi-term matching: all positive terms must be present
     # Split text into words and check if each query term matches any word (with fuzzy matching)
-    text_words = text_lower.split()
     term_scores = []
 
-    for term in terms:
+    for term in positive_terms:
         if _HAS_RAPIDFUZZ and fuzz:
             # Find best matching word in text for this term
             best_score = 0.0
@@ -948,7 +995,7 @@ def _search_score(query: str, text: str) -> float:
             score = 100.0 if term in text_lower else 0.0
             term_scores.append(score)
 
-    # All terms must match (minimum 60% for fuzzy word matching)
+    # All positive terms must match (minimum 60% for fuzzy word matching)
     min_threshold = 60.0 if _HAS_RAPIDFUZZ else 1.0
     if all(score >= min_threshold for score in term_scores):
         # Return average score of all term matches
