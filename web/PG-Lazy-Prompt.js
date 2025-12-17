@@ -755,7 +755,9 @@ import { app } from "../../scripts/app.js";
     }
 
     // interactions
+    var isDestroyed = false;
     function keyHandler(ev){
+      if (isDestroyed) return;
       if (ev.key === 'Escape'){
         destroy();
       } else if (ev.key === 'ArrowDown'){
@@ -788,6 +790,7 @@ import { app } from "../../scripts/app.js";
     // Update destroy to remove new handler
     var originalDestroy = destroy;
     destroy = function() {
+      isDestroyed = true;
       try { document.removeEventListener('keydown', keyHandler); } catch(_){ }
       originalDestroy();
     };
@@ -1069,7 +1072,7 @@ import { app } from "../../scripts/app.js";
       this.properties = this.properties || {};
       if (typeof this.addProperty === 'function'){
         if (!Object.prototype.hasOwnProperty.call(this.properties,'history_path')) this.addProperty('history_path', initPath, 'string');
-        if (!Object.prototype.hasOwnProperty.call(this.properties,'max_entries'))  this.addProperty('max_entries',  initMax,  'number', {min:1,max:1000,step:1});
+        if (!Object.prototype.hasOwnProperty.call(this.properties,'max_entries'))  this.addProperty('max_entries',  initMax,  'number', {min:1,max:999999,step:1});
       } else {
         if (!Object.prototype.hasOwnProperty.call(this.properties,'history_path')) this.properties.history_path = initPath;
         if (!Object.prototype.hasOwnProperty.call(this.properties,'max_entries'))  this.properties.max_entries  = initMax;
@@ -1087,7 +1090,8 @@ import { app } from "../../scripts/app.js";
           const p = j.history_path || this.properties.history_path || DEF_PATH;
           const m = (j.max_entries ?? this.properties.max_entries ?? DEF_MAX);
           this.properties.history_path = p;
-          this.properties.max_entries  = parseInt(m)||DEF_MAX;
+          const parsedMax = parseInt(m);
+          this.properties.max_entries = (parsedMax > 0) ? parsedMax : this.properties.max_entries;
           if (wPath) setWidgetValue(this, wPath, p);
           if (wMax)  setWidgetValue(this, wMax, this.properties.max_entries);
           try{ localStorage.setItem('pg_history_path', String(p)); }catch(_){ }
@@ -1113,7 +1117,13 @@ import { app } from "../../scripts/app.js";
         const orig = w.callback;
         w.callback = function(val){
           try {
-            const v = (prop==='max_entries') ? (parseInt(val)||DEF_MAX) : String(val||'');
+            let v;
+            if (prop === 'max_entries') {
+              const parsed = parseInt(val);
+              v = (parsed > 0) ? parsed : (self.properties[prop] || DEF_MAX);
+            } else {
+              v = String(val || '');
+            }
             self.properties[prop] = v;
             if (prop==='history_path') localStorage.setItem('pg_history_path', String(v));
             if (prop==='max_entries')  localStorage.setItem('pg_history_max',  String(v));
