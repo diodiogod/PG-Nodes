@@ -757,7 +757,14 @@ import { app } from "../../scripts/app.js";
     // interactions
     var isDestroyed = false;
     function keyHandler(ev){
+      // Check if destroyed or if overlay no longer exists in DOM
       if (isDestroyed) return;
+      if (!overlay.parentNode) {
+        isDestroyed = true;
+        try { document.removeEventListener('keydown', keyHandler); } catch(_){ }
+        return;
+      }
+
       if (ev.key === 'Escape'){
         destroy();
       } else if (ev.key === 'ArrowDown'){
