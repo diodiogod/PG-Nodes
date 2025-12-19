@@ -442,9 +442,12 @@ import { app } from "../../scripts/app.js";
   function highlightTerms(text, query) {
     if (!query || !text) return text;
 
-    // Parse query to extract positive terms (skip negative filters with -)
+    // Parse query to extract positive terms (skip negative filters with -, strip + prefix)
     var terms = query.toLowerCase().split(/\s+/).filter(function(t) {
       return t && !t.startsWith('-');
+    }).map(function(t) {
+      // Strip + prefix for required terms
+      return t.startsWith('+') ? t.substring(1) : t;
     });
 
     if (!terms.length) return text;
