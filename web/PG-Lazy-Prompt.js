@@ -477,14 +477,44 @@ import { app } from "../../scripts/app.js";
 
     // header: title + filter (no close button)
     var title = document.createElement('div'); title.className = 'pg-hist-title'; title.textContent = 'History';
+
+    // Wrapper for filter input + dropdown
+    var filterWrapper = document.createElement('div');
+    filterWrapper.style.position = 'relative';
+    filterWrapper.style.flex = '1';
+
     var filter = document.createElement('input');
     filter.type = 'search';
     filter.className = 'pg-hist-filter';
     filter.placeholder = 'filter…';
     filter.autocapitalize = 'off'; filter.autocomplete = 'off'; filter.spellcheck = false;
+    filter.style.flex = '1';
+
+    // Search history dropdown
+    var searchHistoryDropdown = document.createElement('div');
+    searchHistoryDropdown.style.position = 'absolute';
+    searchHistoryDropdown.style.top = '100%';
+    searchHistoryDropdown.style.left = '0';
+    searchHistoryDropdown.style.right = '0';
+    searchHistoryDropdown.style.background = 'var(--pg-hist-card-bg)';
+    searchHistoryDropdown.style.border = '1px solid var(--pg-hist-border)';
+    searchHistoryDropdown.style.borderTop = 'none';
+    searchHistoryDropdown.style.borderRadius = '0 0 8px 8px';
+    searchHistoryDropdown.style.maxHeight = '200px';
+    searchHistoryDropdown.style.overflowY = 'auto';
+    searchHistoryDropdown.style.display = 'none';
+    searchHistoryDropdown.style.zIndex = '10000';
+
+    filterWrapper.appendChild(filter);
+    filterWrapper.appendChild(searchHistoryDropdown);
 
     // destroy helper
     function destroy(){
+      // Save search history when closing popup
+      var q = filter.value.trim();
+      if (q) {
+        saveSearchHistory(q);
+      }
       try { document.removeEventListener('keydown', escHandler); } catch(_){ }
       try { overlay.parentNode && overlay.parentNode.removeChild(overlay); } catch(_){ }
     }
@@ -492,7 +522,90 @@ import { app } from "../../scripts/app.js";
     overlay.addEventListener('click', destroy);
     card.addEventListener('click', function(ev){ ev.stopPropagation(); });
     header.appendChild(title);
-    header.appendChild(filter);
+    header.appendChild(filterWrapper);
+
+    // Search history management
+    var SEARCH_HISTORY_KEY = 'pg_search_history';
+    var MAX_SEARCH_HISTORY = 20;
+
+    function getSearchHistory() {
+      try {
+        var stored = localStorage.getItem(SEARCH_HISTORY_KEY);
+        if (stored) {
+          var arr = JSON.parse(stored);
+          return Array.isArray(arr) ? arr : [];
+        }
+      } catch(_) {}
+      return [];
+    }
+
+    function saveSearchHistory(query) {
+      if (!query || !query.trim()) return;
+      try {
+        var history = getSearchHistory();
+        // Remove duplicate if exists
+        history = history.filter(function(q) { return q !== query; });
+        // Add to front
+        history.unshift(query);
+        // Limit size
+        if (history.length > MAX_SEARCH_HISTORY) {
+          history = history.slice(0, MAX_SEARCH_HISTORY);
+        }
+        localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history));
+      } catch(_) {}
+    }
+
+    function showSearchHistoryDropdown() {
+      var history = getSearchHistory();
+      if (!history.length) {
+        searchHistoryDropdown.style.display = 'none';
+        return;
+      }
+
+      searchHistoryDropdown.innerHTML = '';
+      history.forEach(function(query) {
+        var item = document.createElement('div');
+        item.textContent = query;
+        item.style.padding = '6px 10px';
+        item.style.cursor = 'pointer';
+        item.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
+        item.style.fontSize = '13px';
+        item.onmouseover = function() { item.style.background = 'var(--pg-hist-hover)'; };
+        item.onmouseout = function() { item.style.background = ''; };
+        item.onclick = function() {
+          filter.value = query;
+          searchHistoryDropdown.style.display = 'none';
+          filter.dispatchEvent(new Event('input'));
+          filter.focus();
+        };
+        searchHistoryDropdown.appendChild(item);
+      });
+
+      searchHistoryDropdown.style.display = 'block';
+    }
+
+    function hideSearchHistoryDropdown() {
+      searchHistoryDropdown.style.display = 'none';
+    }
+
+    // Show dropdown on focus
+    filter.addEventListener('focus', function() {
+      if (!filter.value.trim()) {
+        showSearchHistoryDropdown();
+      }
+    });
+
+    // Hide dropdown on blur (with delay to allow clicks)
+    filter.addEventListener('blur', function() {
+      setTimeout(hideSearchHistoryDropdown, 200);
+    });
+
+    // Hide dropdown when typing
+    var lastInputTime = 0;
+    filter.addEventListener('input', function() {
+      lastInputTime = Date.now();
+      hideSearchHistoryDropdown();
+    });
 
     // footer: Use button + New Prompt button
     var useBtn = document.createElement('button');
@@ -1004,7 +1117,7 @@ import { app } from "../../scripts/app.js";
   const EXT = 'pg.history.props.v3';
   if (globalThis[EXT]) return; globalThis[EXT] = true;
 
-  const DEF_PATH = 'custom_nodes\\prompt_history.json';
+  const DEF_PATH = 'custom_nodes\\PG-Nodes\\data\\prompt_history.json';
   const DEF_MAX  = 500;
 
   function findWidget(node, name){

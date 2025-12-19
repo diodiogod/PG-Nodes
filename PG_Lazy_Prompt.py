@@ -45,8 +45,21 @@ PG_ALWAYS_REROLL: bool = True
 _SCHEMA_VERSION = 1
 _HIST_LOCK = threading.Lock()
 _PREFS_LOCK = threading.Lock()
+
+# Determine default history path (inside this node's folder)
+def _get_default_history_path():
+    """Returns the default history path inside the node's data folder."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        data_dir = os.path.join(here, "data")
+        os.makedirs(data_dir, exist_ok=True)
+        return os.path.join(data_dir, "prompt_history.json")
+    except Exception:
+        return os.path.join("data", "prompt_history.json")
+
+_DEFAULT_HISTORY_PATH = _get_default_history_path()
 _RUNTIME_PREFS = {
-    "history_path": "custom_nodes\\prompt_history.json",
+    "history_path": _DEFAULT_HISTORY_PATH,
     "max_entries": 500,
 }
 
@@ -79,6 +92,26 @@ def _save_prefs_to_disk(prefs: Dict[str, Any]) -> None:
         os.replace(temp_path, path)
     except Exception as ex:
         print(f"[PG prefs] Error saving {path}: {ex}")
+
+# Migrate old history file if exists
+def _migrate_old_history():
+    """Migrate history from old location to new data/ folder."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        old_path = os.path.join(os.path.dirname(here), "prompt_history.json")
+        new_path = _DEFAULT_HISTORY_PATH
+
+        # If old file exists and new doesn't, migrate
+        if os.path.exists(old_path) and not os.path.exists(new_path):
+            print(f"[PG history] Migrating history from {old_path} to {new_path}")
+            import shutil
+            os.makedirs(os.path.dirname(new_path), exist_ok=True)
+            shutil.copy2(old_path, new_path)
+            print(f"[PG history] Migration complete. Old file kept at {old_path} (you can delete it)")
+    except Exception as ex:
+        print(f"[PG history] Migration failed: {ex}")
+
+_migrate_old_history()
 
 # Load preferences from disk on module initialization
 _LOADED_PREFS = _load_prefs_from_disk()
