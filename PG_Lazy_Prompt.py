@@ -963,8 +963,9 @@ def _search_score(query: str, text: str) -> float:
 
     Search syntax:
     - Negative filters: "-water -sky" excludes results containing those words
+    - Required terms: "+trees" requires this term to be present (still uses fuzzy matching)
     - Quoted phrases: "sci-fi" searches for literal hyphenated words
-    - Combined: 'mountains "sci-fi" -water -ocean' finds sci-fi mountains without water/ocean
+    - Combined: 'mountains +green "sci-fi" -water' finds sci-fi mountains with required "green", no water
     """
     if not query or not text:
         return 100.0
@@ -991,12 +992,16 @@ def _search_score(query: str, text: str) -> float:
 
     positive_terms = []
     negative_terms = []
+    required_terms = []
 
     for term, is_quoted in parsed_terms:
-        # Only treat '-' as exclusion operator if it's an unquoted term starting with '-'
+        # Only treat '-' and '+' as operators if it's an unquoted term
         if not is_quoted and term.startswith('-') and len(term) > 1:
             # Negative filter (exclude)
             negative_terms.append(term[1:])  # Remove the '-' prefix
+        elif not is_quoted and term.startswith('+') and len(term) > 1:
+            # Required term (must be present with fuzzy matching)
+            required_terms.append(term[1:])  # Remove the '+' prefix
         else:
             # Positive filter (include) - quoted terms or regular terms
             positive_terms.append(term)
@@ -1015,12 +1020,32 @@ def _search_score(query: str, text: str) -> float:
             if neg_term in text_lower:
                 return 0.0
 
-    # If no positive terms, just check that negative filters passed
-    if not positive_terms:
+    # Check required terms - must be present with stricter fuzzy matching (min 80% match)
+    for req_term in required_terms:
+        found = False
+        if _HAS_RAPIDFUZZ and fuzz:
+            for text_word in text_words:
+                score = float(fuzz.ratio(req_term, text_word))
+                if score >= 80.0:  # Stricter threshold for required terms
+                    found = True
+                    break
+        else:
+            # Fallback: substring match
+            if req_term in text_lower:
+                found = True
+
+        if not found:
+            return 0.0  # Required term not found, exclude
+
+    # Combine required terms with positive terms for scoring
+    all_positive = positive_terms + required_terms
+
+    # If no positive terms, just check that filters passed
+    if not all_positive:
         return 100.0
 
-    # If only one positive term, use fuzzy matching
-    if len(positive_terms) == 1:
+    # If only one positive term (not counting required terms which were already validated), use fuzzy matching
+    if len(positive_terms) == 1 and not required_terms:
         term = positive_terms[0]
         if _HAS_RAPIDFUZZ and fuzz:
             # Use rapidfuzz partial_ratio for keyword/substring matching with typo tolerance
@@ -1031,7 +1056,7 @@ def _search_score(query: str, text: str) -> float:
                 return 100.0
             return 0.0
 
-    # Multi-term matching: all positive terms must be present
+    # Multi-term matching: all positive terms must be present (required terms already validated)
     # Split text into words and check if each query term matches any word (with fuzzy matching)
     term_scores = []
 
@@ -1049,13 +1074,21 @@ def _search_score(query: str, text: str) -> float:
             score = 100.0 if term in text_lower else 0.0
             term_scores.append(score)
 
-    # All positive terms must match (minimum 60% for fuzzy word matching)
+    # If only required terms (no optional positive terms), return 100 since required terms already validated
+    if not term_scores:
+        return 100.0
+
+    # Optional terms: calculate average score (they boost relevance but aren't required)
+    # Only count scores above threshold for averaging
     min_threshold = 60.0 if _HAS_RAPIDFUZZ else 1.0
-    if all(score >= min_threshold for score in term_scores):
-        # Return average score of all term matches
-        return sum(term_scores) / len(term_scores)
+    valid_scores = [s for s in term_scores if s >= min_threshold]
+
+    if valid_scores:
+        # Return average of matched optional terms
+        return sum(valid_scores) / len(valid_scores)
     else:
-        return 0.0
+        # No optional terms matched, but required terms did (if any), so return low score
+        return 50.0 if required_terms else 0.0
 
 
 def _make_history_record(key_hash: str, positive: str, negative: str, now: int, old_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
