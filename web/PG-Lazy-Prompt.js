@@ -581,13 +581,8 @@ import { app } from "../../scripts/app.js";
       selectedRowIndex = -1;
       allRows = [];
       var q = filter.value.trim();
-      // Use server-side search if query is provided
-      if (q && allItems.length > 0) {
-        // Client-side fallback for filtering (server already filtered if search_query was sent)
-        filtered = allItems.filter(function(it){ return matchItem(it, q); });
-      } else {
-        filtered = allItems;
-      }
+      // Server already filtered the results, no need for client-side filtering
+      filtered = allItems;
       if (!filtered.length){
         var empty = document.createElement('div');
         empty.className = 'pg-hist-empty';
