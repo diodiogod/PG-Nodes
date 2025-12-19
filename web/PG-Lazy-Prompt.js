@@ -482,13 +482,13 @@ import { app } from "../../scripts/app.js";
     var filterWrapper = document.createElement('div');
     filterWrapper.style.position = 'relative';
     filterWrapper.style.flex = '1';
+    filterWrapper.style.display = 'flex';
 
     var filter = document.createElement('input');
     filter.type = 'search';
     filter.className = 'pg-hist-filter';
     filter.placeholder = 'filter…';
     filter.autocapitalize = 'off'; filter.autocomplete = 'off'; filter.spellcheck = false;
-    filter.style.flex = '1';
 
     // Search history dropdown
     var searchHistoryDropdown = document.createElement('div');
@@ -588,8 +588,8 @@ import { app } from "../../scripts/app.js";
       searchHistoryDropdown.style.display = 'none';
     }
 
-    // Show dropdown on focus
-    filter.addEventListener('focus', function() {
+    // Show dropdown on click (not focus, to avoid auto-opening)
+    filter.addEventListener('click', function() {
       if (!filter.value.trim()) {
         showSearchHistoryDropdown();
       }
@@ -601,9 +601,7 @@ import { app } from "../../scripts/app.js";
     });
 
     // Hide dropdown when typing
-    var lastInputTime = 0;
     filter.addEventListener('input', function() {
-      lastInputTime = Date.now();
       hideSearchHistoryDropdown();
     });
 

@@ -48,12 +48,13 @@ _PREFS_LOCK = threading.Lock()
 
 # Determine default history path (inside this node's folder)
 def _get_default_history_path():
-    """Returns the default history path inside the node's data folder."""
+    """Returns the default history path inside the node's data folder (absolute path)."""
     try:
         here = os.path.dirname(os.path.abspath(__file__))
         data_dir = os.path.join(here, "data")
         os.makedirs(data_dir, exist_ok=True)
-        return os.path.join(data_dir, "prompt_history.json")
+        # Return absolute path to avoid resolution issues
+        return os.path.abspath(os.path.join(data_dir, "prompt_history.json"))
     except Exception:
         return os.path.join("data", "prompt_history.json")
 
@@ -108,6 +109,14 @@ def _migrate_old_history():
             os.makedirs(os.path.dirname(new_path), exist_ok=True)
             shutil.copy2(old_path, new_path)
             print(f"[PG history] Migration complete. Old file kept at {old_path} (you can delete it)")
+
+            # Update prefs to point to new location
+            prefs = _load_prefs_from_disk()
+            old_pref_path = prefs.get("history_path", "")
+            if old_pref_path and "prompt_history.json" in old_pref_path and "PG-Nodes" not in old_pref_path:
+                print(f"[PG history] Updating prefs to point to new location")
+                prefs["history_path"] = _DEFAULT_HISTORY_PATH
+                _save_prefs_to_disk(prefs)
     except Exception as ex:
         print(f"[PG history] Migration failed: {ex}")
 
@@ -116,7 +125,14 @@ _migrate_old_history()
 # Load preferences from disk on module initialization
 _LOADED_PREFS = _load_prefs_from_disk()
 if "history_path" in _LOADED_PREFS:
-    _RUNTIME_PREFS["history_path"] = _LOADED_PREFS["history_path"]
+    loaded_path = _LOADED_PREFS["history_path"]
+    # If it's a relative path, make it absolute relative to the node folder
+    if loaded_path and not os.path.isabs(loaded_path):
+        here = os.path.dirname(os.path.abspath(__file__))
+        # Go up to custom_nodes folder, then resolve the path
+        custom_nodes = os.path.dirname(here)
+        loaded_path = os.path.abspath(os.path.join(os.path.dirname(custom_nodes), loaded_path.replace('\\', os.sep)))
+    _RUNTIME_PREFS["history_path"] = loaded_path
 if "max_entries" in _LOADED_PREFS:
     _RUNTIME_PREFS["max_entries"] = int(_LOADED_PREFS["max_entries"])
 
@@ -328,7 +344,12 @@ def has_choice_syntax(text: str) -> bool:
 
 def _get_prefs():
     with _PREFS_LOCK:
-        hp = str(_RUNTIME_PREFS.get("history_path", "prompt_history.json") or "prompt_history.json")
+        hp = _RUNTIME_PREFS.get("history_path", None)
+        # If no path set or empty string, use default
+        if not hp or not str(hp).strip():
+            hp = _DEFAULT_HISTORY_PATH
+        else:
+            hp = str(hp)
         me = int(_RUNTIME_PREFS.get("max_entries", 500) or 500)
         return hp, me
 
