@@ -126,13 +126,15 @@ _migrate_old_history()
 _LOADED_PREFS = _load_prefs_from_disk()
 if "history_path" in _LOADED_PREFS:
     loaded_path = _LOADED_PREFS["history_path"]
-    # If it's a relative path, make it absolute relative to the node folder
-    if loaded_path and not os.path.isabs(loaded_path):
-        here = os.path.dirname(os.path.abspath(__file__))
-        # Go up to custom_nodes folder, then resolve the path
-        custom_nodes = os.path.dirname(here)
-        loaded_path = os.path.abspath(os.path.join(os.path.dirname(custom_nodes), loaded_path.replace('\\', os.sep)))
-    _RUNTIME_PREFS["history_path"] = loaded_path
+    # Empty string means use default - don't store anything
+    if loaded_path and str(loaded_path).strip():
+        # If it's a relative path, make it absolute relative to the node folder
+        if not os.path.isabs(loaded_path):
+            here = os.path.dirname(os.path.abspath(__file__))
+            # Go up to custom_nodes folder, then resolve the path
+            custom_nodes = os.path.dirname(here)
+            loaded_path = os.path.abspath(os.path.join(os.path.dirname(custom_nodes), loaded_path.replace('\\', os.sep)))
+        _RUNTIME_PREFS["history_path"] = loaded_path
 if "max_entries" in _LOADED_PREFS:
     _RUNTIME_PREFS["max_entries"] = int(_LOADED_PREFS["max_entries"])
 
@@ -1302,9 +1304,9 @@ if PromptServer is not None and web is not None:
                 if "history_path" in data:
                     try:
                         hp = str(data.get("history_path") or "").strip()
-                        if hp:
-                            _RUNTIME_PREFS["history_path"] = hp
-                            updated["history_path"] = hp
+                        # Allow setting to empty string to use default
+                        _RUNTIME_PREFS["history_path"] = hp if hp else _DEFAULT_HISTORY_PATH
+                        updated["history_path"] = hp
                     except Exception:
                         pass
                 if "max_entries" in data:
@@ -1315,11 +1317,15 @@ if PromptServer is not None and web is not None:
                             updated["max_entries"] = me
                     except Exception:
                         pass
+                # Return empty string for history_path if it's the default (don't expose full path to JS)
                 snap = dict(_RUNTIME_PREFS)
+                response_snap = dict(snap)
+                if snap.get("history_path") == _DEFAULT_HISTORY_PATH:
+                    response_snap["history_path"] = ""
                 # Save to disk if any preferences were updated
                 if updated:
-                    _save_prefs_to_disk(snap)
-            return web.json_response({"ok": True, **snap, "updated": updated})
+                    _save_prefs_to_disk(updated)  # Save what user requested, not resolved paths
+            return web.json_response({"ok": True, **response_snap, "updated": updated})
 
         @routes.post("/pg/history/rename")
         async def pg_history_rename(request):
