@@ -207,11 +207,11 @@ import { app } from "../../scripts/app.js";
   function redraw(){ try{ graph()&&graph().setDirtyCanvas&&graph().setDirtyCanvas(true,true);}catch(_){} }
   function dedupe(a){ var m=Object.create(null),o=[]; for (var i=0;i<a.length;i++){ var v=String(a[i]); if(!m[v]){m[v]=1;o.push(v);} } return o; }
   function getHistoryPath(node){
-    // Minimal: prefer the node's properties; fall back to 'prompt_history.json'
+    // Return property value if set, otherwise undefined to let server use its default
     try{
       const p = node && node.properties && node.properties.history_path;
-      return (typeof p === 'string' && p.trim()) ? p : 'prompt_history.json';
-    }catch(_){ return 'prompt_history.json'; }
+      return (typeof p === 'string' && p.trim()) ? p : undefined;
+    }catch(_){ return undefined; }
   }
   function getMaxEntries(node){ var v=parseInt(get(node,'max_entries',500),10); return isNaN(v)||v<=0?500:v; }
   function widgetInfo(node, name) {
@@ -1176,10 +1176,10 @@ import { app } from "../../scripts/app.js";
       const lsPath = localStorage.getItem('pg_history_path');
       const lsMax  = localStorage.getItem('pg_history_max');
 
+      // Keep empty string as-is (means use default internally), don't auto-fill with DEF_PATH
       const initPath = (wPath && String(wPath.value||DEF_PATH))
                     || (this.properties?.history_path)
-                    || lsPath
-                    || DEF_PATH;
+                    || (lsPath !== null ? lsPath : DEF_PATH);
       const initMax  = (wMax  && parseInt(wMax.value||DEF_MAX))
                     || (this.properties?.max_entries)
                     || (lsMax ? parseInt(lsMax) : undefined)
@@ -1203,7 +1203,8 @@ import { app } from "../../scripts/app.js";
         .then(r=>r.json())
         .then(j=>{
           if (!j) return;
-          const p = j.history_path || this.properties.history_path || DEF_PATH;
+          // Keep empty string from server (means use default internally), don't auto-fill
+          const p = (typeof j.history_path === 'string') ? j.history_path : (this.properties.history_path || DEF_PATH);
           const m = (j.max_entries ?? this.properties.max_entries ?? DEF_MAX);
           this.properties.history_path = p;
           const parsedMax = parseInt(m);
@@ -1219,9 +1220,12 @@ import { app } from "../../scripts/app.js";
       this.onPropertyChanged = function(name, value){
         try {
           if (name === 'history_path' || name === 'max_entries') {
-            const payload = { history_path: self.properties.history_path, max_entries: self.properties.max_entries };
-            try{ localStorage.setItem('pg_history_path', String(payload.history_path||'')); }catch(_){ }
-            try{ localStorage.setItem('pg_history_max',  String(payload.max_entries||DEF_MAX)); }catch(_){ }
+            // Ensure empty path is stored and treated as default
+            const hp = (name === 'history_path') ? (String(value||'')) : self.properties.history_path;
+            const me = (name === 'max_entries') ? value : self.properties.max_entries;
+            const payload = { history_path: hp, max_entries: me };
+            try{ localStorage.setItem('pg_history_path', String(hp||'')); }catch(_){ }
+            try{ localStorage.setItem('pg_history_max',  String(me||DEF_MAX)); }catch(_){ }
             fetch('/pg/history/prefs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) }).catch(()=>{});
           }
         } catch(_){ }
