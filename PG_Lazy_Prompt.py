@@ -61,7 +61,7 @@ def _get_default_history_path():
 _DEFAULT_HISTORY_PATH = _get_default_history_path()
 _RUNTIME_PREFS = {
     "history_path": _DEFAULT_HISTORY_PATH,
-    "max_entries": 500,
+    "max_entries": 999999999,
 }
 
 def _get_prefs_file_path() -> str:
@@ -352,7 +352,7 @@ def _get_prefs():
             hp = _DEFAULT_HISTORY_PATH
         else:
             hp = str(hp)
-        me = int(_RUNTIME_PREFS.get("max_entries", 500) or 500)
+        me = int(_RUNTIME_PREFS.get("max_entries", 999999999) or 999999999)
         return hp, me
 
 
