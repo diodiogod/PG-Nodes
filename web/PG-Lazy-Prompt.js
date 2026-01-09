@@ -213,7 +213,6 @@ import { app } from "../../scripts/app.js";
       return (typeof p === 'string' && p.trim()) ? p : undefined;
     }catch(_){ return undefined; }
   }
-  function getMaxEntries(node){ var v=parseInt(get(node,'max_entries',500),10); return isNaN(v)||v<=0?500:v; }
   function widgetInfo(node, name) {
     if (!node || !node.widgets) return null;
     var y = (typeof node.widgets_start_y === 'number') ? node.widgets_start_y : 0;
@@ -308,7 +307,6 @@ import { app } from "../../scripts/app.js";
   async function apiList(node, searchQuery){
     const body = {
       history_path: getHistoryPath(node),
-      max_entries:  getMaxEntries(node),
       objects: true,
     };
     if (searchQuery) {
@@ -1169,35 +1167,26 @@ import { app } from "../../scripts/app.js";
       const r = (typeof origCreated === 'function') ? origCreated.apply(this, arguments) : undefined;
 
       const wPath = findWidget(this, 'history_path');
-      const wMax  = findWidget(this, 'max_entries');
-      if (!__isMaybeOurs(this?.constructor, this) && !wPath && !wMax) return r;
+      if (!__isMaybeOurs(this?.constructor, this) && !wPath) return r;
       if (this.__PG_PROPS_WIRED__) return r;
 
       const lsPath = localStorage.getItem('pg_history_path');
-      const lsMax  = localStorage.getItem('pg_history_max');
 
       // Keep empty string as-is (means use default internally), don't auto-fill with DEF_PATH
       const initPath = (wPath && String(wPath.value||DEF_PATH))
                     || (this.properties?.history_path)
                     || (lsPath !== null ? lsPath : DEF_PATH);
-      const initMax  = (wMax  && parseInt(wMax.value||DEF_MAX))
-                    || (this.properties?.max_entries)
-                    || (lsMax ? parseInt(lsMax) : undefined)
-                    || DEF_MAX;
 
       this.properties = this.properties || {};
       if (typeof this.addProperty === 'function'){
         if (!Object.prototype.hasOwnProperty.call(this.properties,'history_path')) this.addProperty('history_path', initPath, 'string');
-        if (!Object.prototype.hasOwnProperty.call(this.properties,'max_entries'))  this.addProperty('max_entries',  initMax,  'number', {min:1,max:999999,step:1});
       } else {
         if (!Object.prototype.hasOwnProperty.call(this.properties,'history_path')) this.properties.history_path = initPath;
-        if (!Object.prototype.hasOwnProperty.call(this.properties,'max_entries'))  this.properties.max_entries  = initMax;
       }
 
-      hideWidget(wPath); hideWidget(wMax);
+      hideWidget(wPath);
 
       if (wPath) setWidgetValue(this, wPath, this.properties.history_path);
-      if (wMax)  setWidgetValue(this, wMax,  this.properties.max_entries);
 
       fetch('/pg/history/prefs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) })
         .then(r=>r.json())
@@ -1205,27 +1194,20 @@ import { app } from "../../scripts/app.js";
           if (!j) return;
           // Keep empty string from server (means use default internally), don't auto-fill
           const p = (typeof j.history_path === 'string') ? j.history_path : (this.properties.history_path || DEF_PATH);
-          const m = (j.max_entries ?? this.properties.max_entries ?? DEF_MAX);
           this.properties.history_path = p;
-          const parsedMax = parseInt(m);
-          this.properties.max_entries = (parsedMax > 0) ? parsedMax : this.properties.max_entries;
           if (wPath) setWidgetValue(this, wPath, p);
-          if (wMax)  setWidgetValue(this, wMax, this.properties.max_entries);
           try{ localStorage.setItem('pg_history_path', String(p)); }catch(_){ }
-          try{ localStorage.setItem('pg_history_max',  String(this.properties.max_entries)); }catch(_){ }
         }).catch(()=>{});
 
       const self = this;
       const origOnProp = this.onPropertyChanged;
       this.onPropertyChanged = function(name, value){
         try {
-          if (name === 'history_path' || name === 'max_entries') {
+          if (name === 'history_path') {
             // Ensure empty path is stored and treated as default
-            const hp = (name === 'history_path') ? (String(value||'')) : self.properties.history_path;
-            const me = (name === 'max_entries') ? value : self.properties.max_entries;
-            const payload = { history_path: hp, max_entries: me };
+            const hp = String(value||'');
+            const payload = { history_path: hp };
             try{ localStorage.setItem('pg_history_path', String(hp||'')); }catch(_){ }
-            try{ localStorage.setItem('pg_history_max',  String(me||DEF_MAX)); }catch(_){ }
             fetch('/pg/history/prefs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) }).catch(()=>{});
           }
         } catch(_){ }
@@ -1237,23 +1219,15 @@ import { app } from "../../scripts/app.js";
         const orig = w.callback;
         w.callback = function(val){
           try {
-            let v;
-            if (prop === 'max_entries') {
-              const parsed = parseInt(val);
-              v = (parsed > 0) ? parsed : (self.properties[prop] || DEF_MAX);
-            } else {
-              v = String(val || '');
-            }
+            const v = String(val || '');
             self.properties[prop] = v;
             if (prop==='history_path') localStorage.setItem('pg_history_path', String(v));
-            if (prop==='max_entries')  localStorage.setItem('pg_history_max',  String(v));
           } catch(_){ }
           try { app?.graph?.setDirtyCanvas?.(true,true); } catch(_){ }
           return (typeof orig === 'function') ? orig.apply(this, arguments) : undefined;
         };
       }
       wrapWidgetCb(wPath, 'history_path');
-      wrapWidgetCb(wMax,  'max_entries');
 
       this.__PG_PROPS_WIRED__ = true;
       return r;

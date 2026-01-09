@@ -61,7 +61,6 @@ def _get_default_history_path():
 _DEFAULT_HISTORY_PATH = _get_default_history_path()
 _RUNTIME_PREFS = {
     "history_path": _DEFAULT_HISTORY_PATH,
-    "max_entries": 999999999,
 }
 
 def _get_prefs_file_path() -> str:
@@ -352,8 +351,7 @@ def _get_prefs():
             hp = _DEFAULT_HISTORY_PATH
         else:
             hp = str(hp)
-        me = int(_RUNTIME_PREFS.get("max_entries", 999999999) or 999999999)
-        return hp, me
+        return hp
 
 
 def _as_list(x):
@@ -394,8 +392,9 @@ def _compute_key_hash(core: Dict[str, Any]) -> str:
     return hashlib.sha1(s.encode("utf-8")).hexdigest()
 
 
-def _trim_lru(items: List[Dict[str, Any]], max_entries: int) -> List[Dict[str, Any]]:
-    return items[: max(1, int(max_entries))]
+def _trim_lru(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    # No trimming - unlimited history
+    return items
 
 
 def _parse_kh_prefix(s: str) -> str:
@@ -556,9 +555,8 @@ class PgLazyPrompt:
         positive_raw = expand_choices(positive_orig, seed=_seed)
 
         # Load runtime prefs set via /pg/history/prefs
-        _hp, _me = _get_prefs()
+        _hp = _get_prefs()
         history_path = _normalize_history_path(_hp)
-        max_entries = int(_me)
         history = _read_history(history_path)
 
         if   weighting_target_model == "auto":            style = _infer_weight_style_from_clip(clip)
@@ -632,8 +630,7 @@ class PgLazyPrompt:
                     record["hits"] = int(old.get("hits", 0)) + 1
 
                 items.insert(0, record)
-                items = _trim_lru(items, int(max_entries))
-                print(f"[PG history] save: before={before_len} after={len(items)} max_entries={max_entries}")
+                print(f"[PG history] save: before={before_len} after={len(items)}")
 
                 hist["items"] = items
                 _write_history_atomic(history_path, hist)
@@ -716,9 +713,8 @@ class PgLazyPromptMini:
         if (positive_orig == "" and negative_raw == ""):
             print("[PG history] skip: empty positive & negative; not saving (mini)")
         else:
-            _hp, _me = _get_prefs()
+            _hp = _get_prefs()
             history_path = _normalize_history_path(_hp)
-            max_entries = int(_me)
 
             core = {"positive": positive_orig, "negative": negative_raw}
             key_hash = _compute_key_hash(core)
@@ -733,8 +729,7 @@ class PgLazyPromptMini:
 
                 record = _make_history_record(key_hash, positive_orig, negative_raw, now, old_entry)
                 items.insert(0, record)
-                items = _trim_lru(items, max_entries)
-                print(f"[PG history mini] save: before={before_len} after={len(items)} max_entries={max_entries}")
+                print(f"[PG history mini] save: before={before_len} after={len(items)}")
 
                 hist["items"] = items
                 _write_history_atomic(history_path, hist)
@@ -817,9 +812,8 @@ class PgLazyPromptExt:
         if (positive_orig == "" and negative_raw == ""):
             print("[PG history] skip: empty positive & negative; not saving (ext)")
         else:
-            _hp, _me = _get_prefs()
+            _hp = _get_prefs()
             history_path = _normalize_history_path(_hp)
-            max_entries = int(_me)
 
             core = {"positive": positive_orig, "negative": negative_raw}
             key_hash = _compute_key_hash(core)
@@ -834,8 +828,7 @@ class PgLazyPromptExt:
 
                 record = _make_history_record(key_hash, positive_orig, negative_raw, now, old_entry)
                 items.insert(0, record)
-                items = _trim_lru(items, max_entries)
-                print(f"[PG history ext] save: before={before_len} after={len(items)} max_entries={max_entries}")
+                print(f"[PG history ext] save: before={before_len} after={len(items)}")
 
                 hist["items"] = items
                 _write_history_atomic(history_path, hist)
@@ -912,9 +905,8 @@ class PgPromptSimple:
         if (positive_orig == "" and negative_raw == ""):
             print("[PG history] skip: empty positive & negative; not saving (simple)")
         else:
-            _hp, _me = _get_prefs()
+            _hp = _get_prefs()
             history_path = _normalize_history_path(_hp)
-            max_entries = int(_me)
 
             core = {"positive": positive_orig, "negative": negative_raw}
             key_hash = _compute_key_hash(core)
@@ -929,8 +921,7 @@ class PgPromptSimple:
 
                 record = _make_history_record(key_hash, positive_orig, negative_raw, now, old_entry)
                 items.insert(0, record)
-                items = _trim_lru(items, max_entries)
-                print(f"[PG history simple] save: before={before_len} after={len(items)} max_entries={max_entries}")
+                print(f"[PG history simple] save: before={before_len} after={len(items)}")
 
                 hist["items"] = items
                 _write_history_atomic(history_path, hist)
@@ -1140,7 +1131,7 @@ def _history_preview_payload(history_path: str, history_select: str):
         return False, {"error": "exception", "message": str(e)}
 
 
-def _history_list_items(history_path: str, max_entries: int, as_objects: bool = False, search_query: str = ""):
+def _history_list_items(history_path: str, as_objects: bool = False, search_query: str = ""):
     try:
         hp = _normalize_history_path(history_path or "prompt_history.json")
         hist = _read_history(hp)
@@ -1165,7 +1156,8 @@ def _history_list_items(history_path: str, max_entries: int, as_objects: bool = 
             except Exception:
                 return ""
 
-        for e in items[: int(max_entries)]:
+        # No limit - process all items
+        for e in items:
             kh  = (e.get("key_hash") or "").strip()
             pos = (e.get("positive") or "").strip()
             neg = (e.get("negative") or "").strip()
@@ -1260,19 +1252,12 @@ if PromptServer is not None and web is not None:
                 data = await request.json()
             except Exception:
                 data = {}
-            _hp, _me = _get_prefs()
+            _hp = _get_prefs()
             history_path = data.get("history_path", _hp)
-            try:
-                if "max_entries" in data:
-                    max_entries = int(data.get("max_entries"))
-                else:
-                    max_entries = int(data.get("topn", _me))
-            except Exception:
-                max_entries = int(_me)
 
             as_objects = bool(data.get("objects"))
             search_query = str(data.get("search_query", "")).strip() if "search_query" in data else ""
-            ok, res = _history_list_items(history_path, max_entries, as_objects=as_objects, search_query=search_query)
+            ok, res = _history_list_items(history_path, as_objects=as_objects, search_query=search_query)
             if ok:
                 return web.json_response({"ok": True, "items": res})
             return web.json_response({"ok": False, "error": res})
@@ -1309,14 +1294,6 @@ if PromptServer is not None and web is not None:
                         updated["history_path"] = hp
                     except Exception:
                         pass
-                if "max_entries" in data:
-                    try:
-                        me = int(data.get("max_entries"))
-                        if me >= 1:  # No upper limit, only require positive number
-                            _RUNTIME_PREFS["max_entries"] = me
-                            updated["max_entries"] = me
-                    except Exception:
-                        pass
                 # Return empty string for history_path if it's the default (don't expose full path to JS)
                 snap = dict(_RUNTIME_PREFS)
                 response_snap = dict(snap)
@@ -1333,7 +1310,7 @@ if PromptServer is not None and web is not None:
                 data = await request.json()
             except Exception:
                 data = {}
-            _hp, _me = _get_prefs()
+            _hp = _get_prefs()
             history_path = data.get("history_path", _hp)
             history_select = data.get("history_select", "")
             custom_name = data.get("custom_name", "").strip()
