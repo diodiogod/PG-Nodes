@@ -503,6 +503,7 @@ class PgLazyPrompt:
     RETURN_NAMES  = ("POS_OUT","NEG_OUT")
     FUNCTION      = "build_encode_and_history"
     CATEGORY      = "PG"
+
     @classmethod
     def IS_CHANGED(cls, **kwargs):
         if not PG_ALWAYS_REROLL:
@@ -517,7 +518,6 @@ class PgLazyPrompt:
             except Exception:
                 return time.time()
         return None
-    OUTPUT_NODE   = True
 
     def build_encode_and_history(
         self,
@@ -656,7 +656,6 @@ class PgLazyPromptMini:
     RETURN_NAMES  = ("POS_OUT","NEG_OUT")
     FUNCTION      = "build_encode_and_history"
     CATEGORY      = "PG"
-    OUTPUT_NODE   = True
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
@@ -755,7 +754,6 @@ class PgLazyPromptExt:
     RETURN_NAMES  = ("POS_OUT","NEG_OUT","pos_raw","neg_raw")
     FUNCTION      = "build_encode_and_history"
     CATEGORY      = "PG"
-    OUTPUT_NODE   = True
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
@@ -855,7 +853,6 @@ class PgPromptSimple:
     RETURN_NAMES  = ("positive", "negative")
     FUNCTION      = "execute_and_history"
     CATEGORY      = "PG"
-    OUTPUT_NODE   = True
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
