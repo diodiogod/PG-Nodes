@@ -1265,7 +1265,7 @@ if PromptServer is not None and web is not None:
                 data = await request.json()
             except Exception:
                 data = {}
-            _hp, _ = _get_prefs()
+            _hp = _get_prefs()
             history_path = data.get("history_path", _hp)
             history_select = data.get("history_select", "none")
             if not isinstance(history_path, (str, bytes, bytearray)):
